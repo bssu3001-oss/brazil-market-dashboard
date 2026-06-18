@@ -246,30 +246,23 @@ def send_kakao(msg):
 
 def build_message(d, sc, slot):
     slot_kr = {'morning':'오전','afternoon':'오후','evening':'저녁'}.get(slot,'')
-    now = datetime.datetime.now(KST)
-    ts  = now.strftime('%Y-%m-%d %H:%M')
+    ts  = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
     cur = d['closes'][-1] if d['closes'] else 0
-    rsi_str  = f'{d["rsi"]:.1f}' if d.get('rsi') else '--'
-    ewz_str  = f'${d["ewz"]:.2f} ({d["ewz_pct"]:+.2f}%)' if d.get('ewz') else '--'
-    usdbrl_s = f'R${d["usdbrl"]:.2f}' if d.get('usdbrl') else '--'
-    vix_s    = f'{d["vix"]:.1f}' if d.get('vix') else '--'
-    crude_s  = f'${d["crude"]:.1f}' if d.get('crude') else '--'
-    vale_s   = f'${d["vale"]:.2f} ({d["vale_pct"]:+.2f}%)' if d.get('vale') else '--'
-    msg = f"""🇧🇷 브라질 증시 {slot_kr} 시황
-[{ts}]
-
-IBOVESPA: {cur:,.0f} (4주 {d['mom4']:+.1f}%)
-EWZ ETF: {ewz_str}
-이평선: {d['ma_state']} | RSI: {rsi_str}
-미국 VIX: {vix_s} | USD/BRL: {usdbrl_s}
-브렌트유: {crude_s} | Vale: {vale_s}
-
-━━━━━━━━━━━━
-종합신호: {sc['emoji']} {sc['label']} ({sc['pct']}점)
-{sc['desc']}
-
-모바일에서 확인해주세요."""
-    return msg.strip()
+    rsi_str  = f'{d["rsi"]:.1f}' if d.get('rsi') else 'N/A'
+    usdbrl_s = f'R${d["usdbrl"]:.2f}' if d.get('usdbrl') else 'N/A'
+    vix_s    = f'{d["vix"]:.1f}' if d.get('vix') else 'N/A'
+    crude_s  = f'${d["crude"]:.1f}' if d.get('crude') else 'N/A'
+    pct_str  = f'+{d["mom4"]:.1f}' if d.get('mom4', 0) >= 0 else f'{d["mom4"]:.1f}'
+    msg = (f'🇧🇷 브라질 증시 {slot_kr} 시황 [{ts}]\n\n'
+           f'IBOVESPA: {cur:,.0f} (4주 {pct_str}%)\n'
+           f'이평선: {d["ma_state"]} | RSI: {rsi_str}\n'
+           f'미국 VIX: {vix_s} | USD/BRL: {usdbrl_s}\n'
+           f'브렌트유: {crude_s}\n\n'
+           f'━━━━━━━━━━━━\n'
+           f'종합신호: {sc["emoji"]} {sc["label"]} ({sc["pct"]}점)\n'
+           f'{sc["desc"]}\n\n'
+           f'모바일에서 확인해주세요.')
+    return msg
 
 
 def save_market_data(d, sc):
