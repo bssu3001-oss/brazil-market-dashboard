@@ -1,1 +1,19 @@
-{}
+{
+  "current": 168454.0,
+  "ma_signal": "neutral",
+  "ma_state": "혼조",
+  "rsi": 41.7,
+  "mom4": -4.4,
+  "from_hi": -14.6,
+  "ewz": 34.11,
+  "usdbrl": 5.14,
+  "vix": 17.3,
+  "dxy": 100.64,
+  "crude": 78.4,
+  "vale": 15.53,
+  "score_pct": 50,
+  "score_label": "관망",
+  "score_emoji": "📌",
+  "score_desc": "VIX 17.3 안정 / USD/BRL 5.14 안정",
+  "updated_at": "2026-06-18 21:34 KST"
+}
