@@ -26,11 +26,26 @@ def save_state(state):
 
 def get_slot():
     now = datetime.datetime.now(KST)
-    h, m = now.hour, now.minute
+    h = now.hour
     if   7 <= h < 10:  return 'morning'
     elif 12 <= h < 15: return 'afternoon'
     elif 18 <= h < 22: return 'evening'
     return None
+
+
+def already_sent(state, key):
+    today = datetime.datetime.now(KST).strftime('%Y-%m-%d')
+    slot = get_slot()
+    return f'{key}_{slot}' in state.get(today, [])
+
+
+def mark_sent(state, key):
+    today = datetime.datetime.now(KST).strftime('%Y-%m-%d')
+    slot = get_slot()
+    state.setdefault(today, [])
+    slot_key = f'{key}_{slot}'
+    if slot_key not in state[today]:
+        state[today].append(slot_key)
 
 
 def fetch_market_data():
@@ -149,23 +164,47 @@ def calc_scorecard(d):
 
 
 def check_conditions(d, sc):
-    conditions = []
+    alerts = []
     rsi = d.get('rsi') or 50
-    if rsi <= 35:
-        conditions.append(('매수핵심', f'RSI {rsi:.1f} — 극도의 과매도 신호'))
-    if d['ma_signal'] == 'bull' and d.get('mom4', 0) > 0:
-        conditions.append(('매수참고', f'이평 {d["ma_state"]} + 4주 모멘텀 +{d["mom4"]}%'))
-    if d.get('from_hi', 0) <= -15 and rsi <= 45:
-        conditions.append(('매수참고', f'고점 대비 {d["from_hi"]}% 조정 + RSI {rsi:.1f}'))
+    cur = d['closes'][-1] if d['closes'] else 0
+    ma_signal = d['ma_signal']
+    mom4 = d.get('mom4', 0)
+    from_hi = d.get('from_hi', 0)
     vix = d.get('vix') or 20
-    if vix >= 28:
-        conditions.append(('주의', f'VIX {vix:.1f} 공포 구간 — 진입 신중'))
     usdbrl = d.get('usdbrl') or 5.5
+    ewz_pct = d.get('ewz_pct', 0)
+
+    # ── 매수 신호 ──
+    if rsi <= 35:
+        alerts.append({'type': '매수핵심',
+            'msg': f'🟢 [브라질증시] 매수 신호!\nRSI {rsi:.1f} — 극도의 과매도 구간\nIBOVESPA {cur:,.0f} | 1차 매수 검토하세요'})
+
+    if ma_signal == 'bull' and mom4 > 0:
+        alerts.append({'type': '매수핵심',
+            'msg': f'🟢 [브라질증시] 매수 신호!\n이평선 정배열 + 4주 모멘텀 +{mom4:.1f}%\nIBOVESPA {cur:,.0f} | 추세 추종 매수 검토'})
+
+    if from_hi <= -15 and rsi <= 45:
+        alerts.append({'type': '매수참고',
+            'msg': f'📊 [브라질증시] 매수 참고\n52주 고점 대비 {from_hi:.1f}% 조정 + RSI {rsi:.1f}\n저점 매수 구간 진입'})
+
+    if ma_signal == 'bull' and ewz_pct >= 1.5:
+        alerts.append({'type': '호재',
+            'msg': f'🚀 [브라질증시] 강세 신호!\nEWZ ETF +{ewz_pct:.2f}% 상승\n이평선 정배열 유지 중'})
+
+    # ── 주의/손절 신호 ──
+    if vix >= 28:
+        alerts.append({'type': '주의',
+            'msg': f'⚠️ [브라질증시] 글로벌 경보\n미국 VIX {vix:.1f} — 공포 구간\n포지션 축소 검토'})
+
     if usdbrl >= 6.0:
-        conditions.append(('주의', f'USD/BRL {usdbrl:.2f} — 헤알화 급약세'))
-    if d['closes'] and d['closes'][-1] <= 90000:
-        conditions.append(('손절경고', f'IBOVESPA {d["closes"][-1]:,.0f} — 손절 기준 이탈'))
-    return conditions
+        alerts.append({'type': '주의',
+            'msg': f'⚠️ [브라질증시] 주의\nUSD/BRL {usdbrl:.2f} — 헤알화 급약세\n신규 매수 자제, 보유분 점검'})
+
+    if cur > 0 and cur <= 90000:
+        alerts.append({'type': '손절경고',
+            'msg': f'🔴 [브라질증시] 손절 경고!\nIBOVESPA {cur:,.0f} — 주요 지지선 붕괴\n손절 기준 재점검하세요'})
+
+    return alerts
 
 
 def send_kakao(msg):
@@ -205,10 +244,10 @@ def send_kakao(msg):
         return False
 
 
-def build_message(d, sc, conditions, slot):
+def build_message(d, sc, slot):
     slot_kr = {'morning':'오전','afternoon':'오후','evening':'저녁'}.get(slot,'')
     now = datetime.datetime.now(KST)
-    ts  = now.strftime('%Y-%m-%d %H:%M KST')
+    ts  = now.strftime('%Y-%m-%d %H:%M')
     cur = d['closes'][-1] if d['closes'] else 0
     rsi_str  = f'{d["rsi"]:.1f}' if d.get('rsi') else '--'
     ewz_str  = f'${d["ewz"]:.2f} ({d["ewz_pct"]:+.2f}%)' if d.get('ewz') else '--'
@@ -216,24 +255,20 @@ def build_message(d, sc, conditions, slot):
     vix_s    = f'{d["vix"]:.1f}' if d.get('vix') else '--'
     crude_s  = f'${d["crude"]:.1f}' if d.get('crude') else '--'
     vale_s   = f'${d["vale"]:.2f} ({d["vale_pct"]:+.2f}%)' if d.get('vale') else '--'
-    cond_lines = '\n'.join(f'[{c[0]}] {c[1]}' for c in conditions) if conditions else '특이 신호 없음'
     msg = f"""🇧🇷 브라질 증시 {slot_kr} 시황
-{ts}
+[{ts}]
 
 IBOVESPA: {cur:,.0f} (4주 {d['mom4']:+.1f}%)
-EWZ ETF:  {ewz_str}
-이평선:   {d['ma_state']} | RSI: {rsi_str}
-USD/BRL:  {usdbrl_s} | VIX: {vix_s}
+EWZ ETF: {ewz_str}
+이평선: {d['ma_state']} | RSI: {rsi_str}
+미국 VIX: {vix_s} | USD/BRL: {usdbrl_s}
 브렌트유: {crude_s} | Vale: {vale_s}
 
 ━━━━━━━━━━━━
 종합신호: {sc['emoji']} {sc['label']} ({sc['pct']}점)
 {sc['desc']}
 
-[알림 조건]
-{cond_lines}
-
-🔗 {DASHBOARD_URL}"""
+모바일에서 확인해주세요."""
     return msg.strip()
 
 
@@ -271,44 +306,55 @@ def main():
         print('[알림] 알림 슬롯 아님 — 종료')
         return
 
+    now_kst = datetime.datetime.now(KST).strftime('%Y-%m-%d %H:%M')
+    print(f'[{now_kst}] 브라질증시 알림체크 시작')
+
     state = load_state()
-    today = datetime.datetime.now(KST).strftime('%Y-%m-%d')
-    sent_today = state.get(today, [])
 
     print('[데이터] 수집 중...')
     d  = fetch_market_data()
     sc = calc_scorecard(d)
-    conditions = check_conditions(d, sc)
-    print(f'[점수] {sc["emoji"]} {sc["label"]} {sc["pct"]}점')
-    print(f'[조건] {[c[0] for c in conditions]}')
+    cur = d['closes'][-1] if d['closes'] else 0
+    print(f'IBOVESPA: {cur:,.0f} (4주 {d["mom4"]:+.1f}%) | RSI: {d.get("rsi", "--"):.1f} | 이평: {d["ma_state"]}')
 
     save_market_data(d, sc)
 
-    msg = build_message(d, sc, conditions, slot)
-    print('\n[메시지 미리보기]\n' + msg + '\n')
-
-    should_send = False
-    send_reasons = []
-
-    if slot not in sent_today:
-        should_send = True
-        send_reasons.append(f'{slot} 정기 알림')
-
-    cond_key = lambda c: f'{c[0]}_{slot}'
-    new_conditions = [c for c in conditions if cond_key(c) not in sent_today]
-    if new_conditions:
-        should_send = True
-        send_reasons += [c[0] for c in new_conditions]
-
-    if should_send:
-        print(f'[전송] 이유: {send_reasons}')
+    # ① 시황 알림 (슬롯당 1회)
+    if not already_sent(state, 'ai_comment'):
+        msg = build_message(d, sc, slot)
         ok = send_kakao(msg)
         if ok:
-            new_sent = set(sent_today) | {slot} | {cond_key(c) for c in new_conditions}
-            state[today] = list(new_sent)
+            mark_sent(state, 'ai_comment')
             save_state(state)
-    else:
-        print(f'[알림] 오늘 {slot} 이미 전송됨 — 생략')
+
+    # ② 조건 알림 (각 조건 슬롯당 1회 독립 발송)
+    alerts = check_conditions(d, sc)
+    priority = {'손절경고': 0, '주의': 1, '매수핵심': 2, '호재': 3, '매수참고': 4}
+    alerts.sort(key=lambda a: priority.get(a['type'], 99))
+    print(f'[조건] {[a["type"] for a in alerts]}')
+
+    for alert in alerts:
+        key = alert['type']
+        if already_sent(state, key):
+            print(f'  ⏭ 이미 보낸 알림 스킵: {key}')
+            continue
+        ok = send_kakao(alert['msg'])
+        if ok:
+            mark_sent(state, key)
+            save_state(state)
+        print(f'  → {key}: {alert["msg"][:50]}...')
+
+    if not alerts:
+        print('✅ 조건 알림 없음')
+
+    # 3일 이전 상태 정리
+    cutoff = (datetime.datetime.now(KST) - datetime.timedelta(days=3)).strftime('%Y-%m-%d')
+    for d_key in list(state.keys()):
+        if d_key < cutoff:
+            del state[d_key]
+    save_state(state)
+
+    print('완료')
 
 
 if __name__ == '__main__':
