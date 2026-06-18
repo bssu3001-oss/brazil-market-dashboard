@@ -226,21 +226,8 @@ body { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; background
   <hr class="divider">
 
   <div class="section-label">매수 타이밍 가이드</div>
-  <div class="action action-hold" id="ag-now">
-    <div class="action-title" id="ag-now-title">📌 지금 — 분석 중</div>
-    <div class="action-desc" id="ag-now-desc">데이터 로딩 후 AI가 현황을 분석합니다.</div>
-  </div>
-  <div class="action action-buy" id="ag-buy1">
-    <div class="action-title" id="ag-buy1-title">🟢 1차 매수 조건</div>
-    <div class="action-desc" id="ag-buy1-desc">데이터 로딩 후 AI가 조건을 생성합니다.</div>
-  </div>
-  <div class="action action-buy" id="ag-buy2">
-    <div class="action-title" id="ag-buy2-title">🟢 2차 매수 조건</div>
-    <div class="action-desc" id="ag-buy2-desc">데이터 로딩 후 AI가 조건을 생성합니다.</div>
-  </div>
-  <div class="action action-sell" id="ag-sell">
-    <div class="action-title" id="ag-sell-title">🔴 손절 조건</div>
-    <div class="action-desc" id="ag-sell-desc">데이터 로딩 후 AI가 조건을 생성합니다.</div>
+  <div class="card" style="padding:16px;" id="buy-checklist">
+    <div style="font-size:13px;color:var(--text2);">데이터 로딩 중...</div>
   </div>
 
   <hr class="divider">
@@ -492,6 +479,7 @@ async function fetchAllLive() {
     new Date().toLocaleDateString('ko-KR')+' '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
 
   _liveData = {ibov, ewz, vix, dxy, usdbrl, crude, vale, eem, sp500};
+  buildChecklist();
   return _liveData;
 }
 
@@ -520,8 +508,113 @@ async function fetchNews() {
       } catch(e2) {}
     }
   }
+  const CACHE_KEY = 'news_cache_brazil';
+  if (allTitles.length > 0) {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ titles: allTitles, savedAt: Date.now() }));
+    window.__newsCached = false;
+  } else {
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      if (cached?.titles?.length) { allTitles = cached.titles; window.__newsCached = true; }
+    } catch(e) {}
+  }
   window.__newsForAnalysis = allTitles;
+  setNewsBadgesDirect(allTitles);
   recalcScorecard();
+  if (typeof updateNewsBadgesFromKorean === 'function') try { updateNewsBadgesFromKorean(); } catch(e) {}
+  const note = document.getElementById('news-live-note');
+  if (note) note.textContent = window.__newsCached ? '* 최근 저장된 뉴스 표시 중 (실시간 로드 실패)' : '* 뉴스 헤드라인 기반 자동 분류';
+}
+
+function setNewsBadgesDirect(titles) {
+  if (!titles || !titles.length) return;
+  const all = titles.join(' ').toLowerCase();
+  function cleanT(t) { return t.replace(/\[.*?\]\s*/,'').replace(/\s*[-–]\s*\S+$/, '').trim(); }
+  function trimT(t) { return t.length > 30 ? t.slice(0,30)+'…' : t; }
+  const latest = trimT(cleanT(titles[0]));
+  function findKw(kws) {
+    for (const kw of kws) {
+      const f = titles.find(t => t.toLowerCase().includes(kw));
+      if (f) return trimT(cleanT(f));
+    }
+    return null;
+  }
+  const cfg = [
+    ['badge-bcb',   ['selic','금리 인하','bcb 완화','셀릭 인하','통화 완화','피벗'],
+                    ['금리 인상','bcb 긴축','셀릭 인상','긴축','매파'],
+                    'BCB 완화(호재)','BCB 긴축(악재)','BCB 혼조',
+                    ['금리','bcb','selic','셀릭','기준금리']],
+    ['badge-ipca',  ['물가 안정','인플레 완화','물가 하락','물가 둔화'],
+                    ['물가 상승','인플레 급등','물가 급등','인플레 우려'],
+                    'IPCA 안정(호재)','IPCA 상승(악재)','IPCA 혼조',
+                    ['물가','ipca','인플레','cpi']],
+    ['badge-commodity',['철광석 상승','원자재 상승','vale 상승','원자재 강세'],
+                    ['철광석 하락','원자재 하락','vale 하락','원자재 약세'],
+                    '원자재 호조(호재)','원자재 부진(악재)','원자재 혼조',
+                    ['철광석','원자재','vale','발레','유가','광물']],
+    ['badge-china', ['중국 경기 호조','중국 회복','중국 부양','중국 성장'],
+                    ['중국 경기 둔화','중국 침체','중국 위기','중국 부진'],
+                    '중국 호조(호재)','중국 둔화(악재)','중국 혼조',
+                    ['중국','china','위안','인민은행']],
+    ['badge-trade', ['무역 흑자','수출 증가','재정 개선','무역 합의'],
+                    ['무역 적자','재정 적자','수출 감소','재정 위기'],
+                    '무역/재정 호조(호재)','무역/재정 우려(악재)','무역/재정 혼조',
+                    ['무역','수출','관세','재정']],
+    ['badge-political',['개혁','정책 안정','룰라 개혁','재정 규율','정치 안정'],
+                    ['정치 불안','탄핵','정치 리스크','재정 팽창','불확실'],
+                    '정치 안정(호재)','정치 리스크(악재)','정치 혼조',
+                    ['룰라','정치','의회','탄핵','개혁','예산']],
+  ];
+  function setBadge(id, text, cls) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = text; el.className = 'badge ' + cls; }
+  }
+  cfg.forEach(([id, gKw, rKw, gT, rT, nT, relKw]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isG = gKw.some(k => all.includes(k));
+    const isR = rKw.some(k => all.includes(k));
+    let text, cls;
+    if      (isG && !isR) { text = gT; cls = 'badge-g'; }
+    else if (isR && !isG) { text = rT; cls = 'badge-r'; }
+    else if (isG && isR)  { text = nT; cls = 'badge-y'; }
+    else { text = findKw(relKw) || latest; cls = 'badge-b'; }
+    el.textContent = text; el.className = 'badge ' + cls;
+  });
+}
+
+
+function buildChecklist() {
+  const d = _liveData;
+  if (!d || !d.ibov) return;
+  const cls = id => document.getElementById(id)?.className || '';
+  const txt = id => document.getElementById(id)?.textContent || '--';
+  const isG = c => c.includes('badge-g');
+  const isR = c => c.includes('badge-r');
+  const maCls = cls('badge-ma'), momCls = cls('badge-mom');
+  const vix = d.vix?.price || 0;
+  const usdbrl = d.usdbrl?.price || 0;
+  const ewzPct = d.ewz?.pct ?? null;
+  const eemPct = d.eem?.pct ?? null;
+  const items = [
+    { label:'이평선 배열', val: txt('badge-ma'), ok: isG(maCls), warn: !isR(maCls) },
+    { label:'4주 모멘텀', val: txt('badge-mom'), ok: isG(momCls), warn: !isR(momCls) },
+    { label:'VIX (공포지수)', val: vix ? vix.toFixed(1) : '--', ok: vix>0&&vix<18, warn: vix>0&&vix<28 },
+    { label:'USD/BRL (헤알 환율)', val: usdbrl ? 'R$'+usdbrl.toFixed(2) : '--', ok: usdbrl>0&&usdbrl<5.5, warn: usdbrl>0&&usdbrl<6.0 },
+    { label:'EWZ (브라질 ETF)', val: ewzPct!=null?(ewzPct>=0?'▲':'▼')+Math.abs(ewzPct).toFixed(2)+'%':'--', ok: ewzPct!=null&&ewzPct>=0.5, warn: ewzPct!=null&&ewzPct>-0.5 },
+    { label:'신흥국 흐름 (EEM)', val: eemPct!=null?(eemPct>=0?'▲':'▼')+Math.abs(eemPct).toFixed(2)+'%':'--', ok: eemPct!=null&&eemPct>=0.5, warn: eemPct!=null&&eemPct>-0.5 },
+  ];
+  const green = items.filter(i=>i.ok).length;
+  const score = green + items.filter(i=>!i.ok&&i.warn).length*0.5;
+  const [verdict, vBg, vColor] = green>=4
+    ? ['✅ 매수 적극 검토 — 주요 조건 대부분 충족','var(--buy-bg)','var(--buy-text)']
+    : score>=3
+    ? ['⚡ 분할매수 검토 — 소량 진입 가능, 추가 조건 확인 권장','var(--warn-bg)','var(--warn-text)']
+    : ['⏸ 관망 — 조건 불충분, 추가 신호 대기','var(--sell-bg)','var(--sell-text)'];
+  const scoreColor = green>=4?'var(--buy-text)':score>=3?'var(--warn-text)':'var(--sell-text)';
+  const el = document.getElementById('buy-checklist');
+  if (!el) return;
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:13px;font-weight:700;">지금 살까요?</span><span style="font-size:13px;font-weight:700;color:${scoreColor};">${green}/${items.length} 충족</span></div>${items.map(i=>{const ic=i.ok?'✅':i.warn?'⚡':'❌';const c=i.ok?'var(--buy-text)':i.warn?'var(--warn-text)':'var(--sell-text)';return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:0.5px solid var(--border);"><span style="color:var(--text2);">${ic} ${i.label}</span><span style="font-size:12px;font-weight:600;color:${c};">${i.val}</span></div>`}).join('')}<div style="margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600;background:${vBg};color:${vColor};">${verdict}</div>`;
 }
 
 function recalcScorecard() {
@@ -707,6 +800,6 @@ setInterval(async()=>{
   delete _chartCache['d1'];
 },5*60*1000);
 </script>
-<script src="실시간.js"></script>
+<script src="실시간.js?v=20260619"></script>
 </body>
 </html>
