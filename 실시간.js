@@ -282,17 +282,14 @@
       return null;
     }
 
-    function ko(id, gKw, rKw, gT, rT, nT) {
+    function ko(id, gKw, rKw, gT, rT, nT, dT) {
       const isG = gKw.some(k => all.includes(k.toLowerCase()));
       const isR = rKw.some(k => all.includes(k.toLowerCase()));
       let cls, text;
       if      (isG && !isR) { cls = 'badge-g'; text = gT; }
       else if (isR && !isG) { cls = 'badge-r'; text = rT; }
       else if (isG && isR)  { cls = 'badge-y'; text = nT; }
-      else {
-        cls = 'badge-b';
-        text = findRelatedHeadline(relKw[id] || []) || latestHeadline || '최신 뉴스 없음';
-      }
+      else { const _h = findRelatedHeadline(relKw[id] || []); if (_h) { cls = 'badge-b'; text = _h; } else if (dT) { cls = 'badge-y'; text = dT; } else { return; } }
       const el = document.getElementById(id);
       if (el) { el.textContent = text; el.className = 'badge ' + cls; }
     }
@@ -300,32 +297,32 @@
     ko('badge-bcb',
       ['금리 인하','셀릭 인하','bcb 완화','selic 인하','통화 완화','피벗','bcb 동결'],
       ['금리 인상','셀릭 인상','bcb 긴축','selic 인상','긴축','매파'],
-      'BCB 완화(호재)', 'BCB 긴축(악재)', 'BCB 혼조');
+      'BCB 완화(호재)', 'BCB 긴축(악재)', 'BCB 혼조', 'BCB 정책 관망');
 
     ko('badge-ipca',
       ['ipca 하락','물가 안정','인플레 완화','물가 둔화','물가 하락','디스인플레'],
       ['ipca 상승','물가 급등','인플레 우려','물가 상승','인플레이션 급등','인플레 심화'],
-      'IPCA 안정(호재)', 'IPCA 상승(악재)', 'IPCA 혼조');
+      'IPCA 안정(호재)', 'IPCA 상승(악재)', 'IPCA 혼조', '물가 혼조');
 
     ko('badge-commodity',
       ['철광석 상승','원자재 호조','vale 상승','철광석 강세','원자재 강세','원자재 상승'],
       ['철광석 하락','원자재 부진','vale 하락','철광석 약세','원자재 약세','원자재 하락'],
-      '원자재 호조(호재)', '원자재 부진(악재)', '원자재 혼조');
+      '원자재 호조(호재)', '원자재 부진(악재)', '원자재 혼조', '원자재 혼조');
 
     ko('badge-china',
       ['중국 경기 호조','중국 수요 증가','중국 경제 성장','중국 회복','중국 부양','중국 성장'],
       ['중국 경기 둔화','중국 수요 감소','중국 경제 침체','중국 위기','중국 부진','중국 둔화'],
-      '중국 경기 호조(호재)', '중국 경기 둔화(악재)', '중국 경기 혼조');
+      '중국 경기 호조(호재)', '중국 경기 둔화(악재)', '중국 경기 혼조', '중국 동향 주시');
 
     ko('badge-trade',
       ['무역 흑자','수출 증가','재정 개선','무역 합의','수출 호조','수출 성장'],
       ['무역 적자','재정 우려','재정 적자','수출 감소','재정 위기','재정 팽창'],
-      '무역/재정 호조(호재)', '무역/재정 우려(악재)', '무역/재정 혼조');
+      '무역/재정 호조(호재)', '무역/재정 우려(악재)', '무역/재정 혼조', '무역/재정 주시');
 
     ko('badge-political',
       ['개혁 기대','재정 긴축','정책 안정','룰라 개혁','재정 규율','정치 안정'],
       ['재정 적자','정치 불안','룰라 지출','재정 팽창','정치 리스크','탄핵','정치 불확실'],
-      '정치 안정(호재)', '정치 리스크(악재)', '정치 혼조');
+      '정치 안정(호재)', '정치 리스크(악재)', '정치 혼조', '정치 관망');
 
     const note = document.getElementById('news-live-note');
     if (note) {
