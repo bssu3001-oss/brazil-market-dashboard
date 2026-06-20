@@ -1,10 +1,13 @@
 /* ──────────────────────────────────────────────────────────────
    실시간.js — 브라질 증시 대시보드
    페이지 열 때마다 차트 과거추이·기술지표·뉴스신호를 실시간 갱신.
+   원칙: 어떤 호출이 실패해도 화면이 깨지거나 빈칸이 되지 않고
+        직전 값/정적값을 그대로 유지한다.
    ────────────────────────────────────────────────────────────── */
 (function () {
   'use strict';
 
+  // ── 여러 CORS 프록시를 순서대로 시도 (하나 막혀도 다음으로) ──
   const PROXIES = [
     (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
     (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
@@ -15,13 +18,13 @@
     for (const make of PROXIES) {
       try {
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), timeoutMs || 8000);
+        const t = setTimeout(() => ctrl.abort(), timeoutMs || 5000);
         const r = await fetch(make(url), { signal: ctrl.signal });
         clearTimeout(t);
         if (!r.ok) continue;
         const txt = await r.text();
         if (txt && txt.length > 0) return txt;
-      } catch (e) {}
+      } catch (e) { /* 다음 프록시 시도 */ }
     }
     return null;
   }
@@ -32,14 +35,15 @@
     try { return JSON.parse(txt); } catch (e) { return null; }
   }
 
-  // 구글 번역 (무료, 키 불필요)
+  // 영문 → 한국어 번역 (구글 번역)
   async function translateKo(text) {
     if (!text) return text;
     try {
       const r = await fetch('https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q=' + encodeURIComponent(text));
       if (!r.ok) return text;
       const j = await r.json();
-      return (j[0] || []).map((x) => x[0]).join('') || text;
+      const out = (j[0] || []).map((x) => x[0]).join('');
+      return out || text;
     } catch (e) { return text; }
   }
 
@@ -47,6 +51,7 @@
   const MAIN_TICKER_URL = '%5EBVSP';
   const MAIN_TICKER_NAME = 'IBOVESPA';
 
+  // ── 기술적 지표 계산 ──
   function setBadge(id, text, cls) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -62,12 +67,14 @@
       if (diff >= 0) gain += diff; else loss -= diff;
     }
     if (loss === 0) return 100;
-    return 100 - 100 / (1 + (gain / n) / (loss / n));
+    const rs = (gain / n) / (loss / n);
+    return 100 - 100 / (1 + rs);
   }
 
   function sma(prices, n) {
     if (prices.length < n) return null;
-    return prices.slice(prices.length - n).reduce((a, b) => a + b, 0) / n;
+    const s = prices.slice(prices.length - n);
+    return s.reduce((a, b) => a + b, 0) / n;
   }
 
   function updateTechnicals(meta, weeklyPrices) {
@@ -86,7 +93,7 @@
       setBadge('badge-rsi', `RSI ${rsi.toFixed(1)} — ${lbl}`, cls);
     }
 
-    // 이평선 배열
+    // 이평선 배열 (MA5 / MA13 / MA26 주봉)
     const ma5 = sma(weeklyPrices, 5), ma13 = sma(weeklyPrices, 13), ma26 = sma(weeklyPrices, 26);
     if (ma5 != null && ma13 != null && ma26 != null) {
       let lbl, cls;
@@ -98,27 +105,30 @@
       setBadge('badge-ma', lbl, cls);
     }
 
-    // 4주 모멘텀
+    // 단기 모멘텀 (4주 변화)
     if (weeklyPrices.length >= 5) {
       const past = weeklyPrices[weeklyPrices.length - 5];
       const mom = (cur - past) / past * 100;
-      const cls = mom >= 2 ? 'badge-g' : mom <= -2 ? 'badge-r' : 'badge-y';
-      setBadge('badge-mom', `${mom>=0?'▲':'▼'} ${Math.abs(mom).toFixed(1)}% (4주)`, cls);
+      const arrow = mom >= 0 ? '▲' : '▼';
+      let cls;
+      if (mom >= 2) cls = 'badge-g'; else if (mom <= -2) cls = 'badge-r'; else cls = 'badge-y';
+      setBadge('badge-mom', `${arrow} ${Math.abs(mom).toFixed(1)}% (4주)`, cls);
     }
 
-    // 52주 위치
+    // 52주 가격 위치
     let hi = meta && meta.fiftyTwoWeekHigh, lo = meta && meta.fiftyTwoWeekLow;
     if (!hi || !lo) { hi = Math.max(...weeklyPrices); lo = Math.min(...weeklyPrices); }
     if (hi && lo && hi > lo) {
       const fromHi = (cur - hi) / hi * 100;
       const fromLo = (cur - lo) / lo * 100;
       const pos = (cur - lo) / (hi - lo);
-      const cls = pos < 0.5 ? 'badge-g' : pos > 0.85 ? 'badge-y' : 'badge-b';
+      let cls;
+      if (pos < 0.5) cls = 'badge-g'; else if (pos > 0.85) cls = 'badge-y'; else cls = 'badge-b';
       setBadge('badge-pos', `고점 대비 ${fromHi.toFixed(1)}% / 저점 대비 +${fromLo.toFixed(1)}%`, cls);
     }
   }
 
-  // AI 차트 분석 카드
+  // ── AI 차트 분석 카드 ──
   function buildAnalysis(name, weekly, d5, meta) {
     const el = document.getElementById('ai-chart-analysis');
     if (!el || !weekly || weekly.length < 14) return;
@@ -164,10 +174,10 @@
       `<span style="color:var(--text3);font-size:11px;">* 열 때마다 실시간 지표로 자동 작성됩니다</span>`;
   }
 
-  // 뉴스 카드
+  // ── 주요 뉴스 (제목+링크, 열 때마다 실시간) ──
   const NEWS_FEEDS = [
-    { url: 'https://news.google.com/rss/search?q=브라질+증시&hl=ko&gl=KR&ceid=KR:ko',       source: '구글뉴스', isKo: true },
-    { url: 'https://news.google.com/rss/search?q=브라질+경제+헤알화&hl=ko&gl=KR&ceid=KR:ko', source: '구글뉴스', isKo: true },
+    { url: 'https://news.google.com/rss/search?q=브라질+증시&hl=ko&gl=KR&ceid=KR:ko',          source: '구글뉴스', isKo: true },
+    { url: 'https://news.google.com/rss/search?q=브라질+경제+헤알화&hl=ko&gl=KR&ceid=KR:ko',  source: '구글뉴스', isKo: true },
     { url: 'https://news.google.com/rss/search?q=브라질+금리+Selic+BCB&hl=ko&gl=KR&ceid=KR:ko', source: '구글뉴스', isKo: true },
   ];
 
@@ -184,13 +194,13 @@
       try {
         const parseXml = (xml) => {
           const doc = new DOMParser().parseFromString(xml, 'text/xml');
-          return [...doc.querySelectorAll('item')].slice(0, 10).map((item) => {
+          return [...doc.querySelectorAll('item')].slice(0, 12).map((item) => {
             const g = (tag) => item.getElementsByTagName(tag)[0]?.textContent?.trim() || '';
             const title = g('title'); const link = g('link') || g('guid'); const pubDate = g('pubDate');
             return { title, link, source: f.source, isKo: !!f.isKo, ts: pubDate ? (new Date(pubDate).getTime() || 0) / 1000 : 0 };
           }).filter((x) => x.title && x.link.startsWith('http'));
         };
-        const parseRss = (d) => (d.items || []).slice(0, 10).map((it) => ({
+        const parseRss = (d) => (d.items || []).slice(0, 12).map((it) => ({
           title: (it.title || '').trim(), link: (it.link || it.guid || '').trim(),
           source: f.source, isKo: !!f.isKo, ts: it.pubDate ? (new Date(it.pubDate).getTime() || 0) / 1000 : 0,
         })).filter((x) => x.title && x.link.startsWith('http'));
@@ -204,11 +214,12 @@
         return items;
       } catch (e) { return []; }
     }));
-    const EXCLUDE = ['한국 증시','코스피','코스닥','삼성전자','한국 주식'];
+    const EXCLUDE = ['한국 증시', '코스피', '코스닥', '삼성전자', '한국 주식'];
     const all = [], seen = new Set();
     sets.forEach((s) => s.forEach((n) => {
-      if (EXCLUDE.some((kw) => n.title.includes(kw))) return;
-      const k = n.title.toLowerCase().slice(0, 60);
+      const t = n.title;
+      if (EXCLUDE.some((kw) => t.includes(kw))) return;
+      const k = t.toLowerCase().slice(0, 60);
       if (seen.has(k)) return;
       seen.add(k); all.push(n);
     }));
@@ -218,11 +229,10 @@
 
   function ensureNewsCard() {
     if (document.getElementById('major-news')) return;
-    const anchor = document.querySelector('.section-label');
+    const anchor = document.querySelector('.section-label') || document.querySelector('.main-header');
     if (!anchor || !anchor.parentNode) return;
     const card = document.createElement('div');
     card.className = 'card';
-    card.style.marginBottom = '16px';
     card.innerHTML = '<div class="card-title">📰 주요 뉴스 <span style="font-size:11px;font-weight:400;color:var(--text3);">— 실시간 · 브라질 시장</span></div><div id="major-news"><div style="font-size:12px;color:var(--text3);">뉴스 불러오는 중…</div></div>';
     anchor.parentNode.insertBefore(card, anchor);
   }
@@ -232,10 +242,7 @@
     const box = document.getElementById('major-news');
     if (!box) return;
     const items = await fetchNewsItems();
-    if (!items.length) {
-      box.innerHTML = '<div style="font-size:12px;color:var(--text3);">뉴스를 불러오지 못했어요 (잠시 후 새로고침)</div>';
-      return;
-    }
+    if (!items.length) { box.innerHTML = '<div style="font-size:12px;color:var(--text3);">뉴스를 불러오지 못했어요 (잠시 후 새로고침)</div>'; return; }
     const kos = await Promise.all(items.map((n) => n.isKo ? n.title : translateKo(n.title)));
     items.forEach((n, i) => { n.ko = (kos[i] || n.title).trim(); });
     window.__majorNewsItems = items;
@@ -243,53 +250,56 @@
     box.innerHTML = items.map((n) => {
       const ko = (n.ko || n.title).replace(/&/g, '&amp;').replace(/</g, '&lt;');
       const meta = [n.source, relTime(n.ts)].filter(Boolean).join(' · ');
-      return `<a href="${n.link}" target="_blank" rel="noopener" style="display:block;padding:9px 0;border-bottom:0.5px solid var(--border);text-decoration:none;color:var(--text);">` +
-        `<div style="font-size:13px;line-height:1.45;">${ko}</div>` +
-        `<div style="font-size:11px;color:var(--text3);margin-top:3px;">${meta} ↗</div></a>`;
+      const ageDay = n.ts ? (Date.now()/1000 - n.ts) / 86400 : 0;
+      const dimStyle = ageDay > 7 ? 'opacity:0.4;' : '';
+      return `<a href="${n.link}" target="_blank" rel="noopener" style="display:block;padding:9px 0;border-bottom:0.5px solid var(--border);text-decoration:none;color:var(--text);${dimStyle}"><div style="font-size:13px;line-height:1.45;">${ko}</div><div style="font-size:11px;color:var(--text3);margin-top:3px;">${meta} ↗</div></a>`;
     }).join('');
   }
 
-  // 뉴스 배지 자동 분류
+  // ── 한국어 뉴스 키워드로 뉴스 배지 자동 분류 (API 키 불필요) ──
   function updateNewsBadgesFromKorean() {
     const items = (window.__majorNewsItems || []).length
       ? (window.__majorNewsItems || [])
       : (window.__newsForAnalysis || []).map(t => ({ ko: t, title: t }));
     if (!items.length) return;
-    const all = items.map(n => (n.ko || n.title || '')).join(' ').toLowerCase();
-
-    // 각 배지별 관련 키워드 (헤드라인 검색용)
-    const relKw = {
-      'badge-bcb':      ['금리','bcb','selic','셀릭','통화','기준금리','긴축','완화','피벗','매파'],
-      'badge-ipca':     ['ipca','물가','인플레','cpi','소비자물가','인플레이션'],
-      'badge-commodity':['철광석','원자재','vale','발레','광물','유가','구리','commodity'],
-      'badge-china':    ['중국','차이나','china','위안','인민은행','pboc','중국 증시'],
-      'badge-trade':    ['무역','수출','수입','재정','흑자','적자','경상수지','관세'],
-      'badge-political':['룰라','정치','의회','탄핵','재정','헌법','개혁','정책','예산'],
-    };
+    const all = items.map(n => (n.ko || n.title || '')).join(' ');
 
     function cleanTitle2(t) { return (t||'').replace(/\[.*?\]\s*/,'').replace(/\s*[-–]\s*\S+$/, '').trim(); }
     function trimTitle2(t) { return t.length > 30 ? t.slice(0, 30) + '…' : t; }
-    const latestHeadline = items.length ? trimTitle2(cleanTitle2(items[0].ko || items[0].title || '')) : null;
 
     function findRelatedHeadline(searchKws) {
       for (const kw of searchKws) {
         const found = items.find(n => (n.ko || n.title || '').toLowerCase().includes(kw.toLowerCase()));
         if (found) {
-          const title = (found.ko || found.title || '').replace(/\[.*?\]\s*/,'').replace(/\s*[-–]\s*\S+$/, '').trim();
+          const title = cleanTitle2(found.ko || found.title || '');
           return title.length > 30 ? title.slice(0, 30) + '…' : title;
         }
       }
       return null;
     }
 
+    const relKw = {
+      'badge-bcb':      ['금리','bcb','selic','셀릭','통화','기준금리','긴축','완화','피벗','매파'],
+      'badge-ipca':     ['ipca','물가','인플레','cpi','소비자물가','인플레이션'],
+      'badge-gdp':      ['gdp','성장률','경제성장','경기','성장'],
+      'badge-fed':      ['연준','fed','파월','fomc','달러','금리'],
+      'badge-trade':    ['무역','수출','수입','재정','흑자','적자','관세'],
+      'badge-political':['룰라','정치','의회','탄핵','개혁','예산','정책'],
+    };
+
     function ko(id, gKw, rKw, gT, rT, nT, dT) {
-      const isG = gKw.some(k => all.includes(k.toLowerCase()));
-      const isR = rKw.some(k => all.includes(k.toLowerCase()));
+      const isG = gKw.some(k => all.toLowerCase().includes(k.toLowerCase()));
+      const isR = rKw.some(k => all.toLowerCase().includes(k.toLowerCase()));
       let cls, text;
       if      (isG && !isR) { cls = 'badge-g'; text = gT; }
       else if (isR && !isG) { cls = 'badge-r'; text = rT; }
       else if (isG && isR)  { cls = 'badge-y'; text = nT; }
-      else { const _h = findRelatedHeadline(relKw[id] || []); if (_h) { cls = 'badge-b'; text = _h; } else if (dT) { cls = 'badge-y'; text = dT; } else { return; } }
+      else {
+        const h = findRelatedHeadline(relKw[id] || []);
+        if (h) { cls = 'badge-b'; text = h; }
+        else if (dT) { cls = 'badge-y'; text = dT; }
+        else { return; }
+      }
       const el = document.getElementById(id);
       if (el) { el.textContent = text; el.className = 'badge ' + cls; }
     }
@@ -301,35 +311,31 @@
 
     ko('badge-ipca',
       ['ipca 하락','물가 안정','인플레 완화','물가 둔화','물가 하락','디스인플레'],
-      ['ipca 상승','물가 급등','인플레 우려','물가 상승','인플레이션 급등','인플레 심화'],
+      ['ipca 상승','물가 급등','인플레 우려','물가 상승','인플레 심화'],
       'IPCA 안정(호재)', 'IPCA 상승(악재)', 'IPCA 혼조', '물가 혼조');
 
-    ko('badge-commodity',
-      ['철광석 상승','원자재 호조','vale 상승','철광석 강세','원자재 강세','원자재 상승'],
-      ['철광석 하락','원자재 부진','vale 하락','철광석 약세','원자재 약세','원자재 하락'],
-      '원자재 호조(호재)', '원자재 부진(악재)', '원자재 혼조', '원자재 혼조');
+    ko('badge-gdp',
+      ['gdp 성장','경제성장','성장률 상승','경기 호조','성장 가속','경기 반등'],
+      ['gdp 둔화','성장 둔화','경기 침체','성장률 하락','경기 부진'],
+      'GDP 성장(호재)', 'GDP 둔화(악재)', 'GDP 혼조', 'GDP 혼조');
 
-    ko('badge-china',
-      ['중국 경기 호조','중국 수요 증가','중국 경제 성장','중국 회복','중국 부양','중국 성장'],
-      ['중국 경기 둔화','중국 수요 감소','중국 경제 침체','중국 위기','중국 부진','중국 둔화'],
-      '중국 경기 호조(호재)', '중국 경기 둔화(악재)', '중국 경기 혼조', '중국 동향 주시');
+    ko('badge-fed',
+      ['연준 인하','금리 인하','파월 완화','연준 완화','연준 피벗','dovish'],
+      ['연준 인상','연준 긴축','파월 매파','hawkish','금리 동결 우려'],
+      '연준 완화(호재)', '연준 긴축(악재)', '연준 불확실', '연준 불확실');
 
     ko('badge-trade',
-      ['무역 흑자','수출 증가','재정 개선','무역 합의','수출 호조','수출 성장'],
+      ['무역 흑자','수출 증가','재정 개선','무역 합의','수출 호조'],
       ['무역 적자','재정 우려','재정 적자','수출 감소','재정 위기','재정 팽창'],
       '무역/재정 호조(호재)', '무역/재정 우려(악재)', '무역/재정 혼조', '무역/재정 주시');
 
     ko('badge-political',
       ['개혁 기대','재정 긴축','정책 안정','룰라 개혁','재정 규율','정치 안정'],
-      ['재정 적자','정치 불안','룰라 지출','재정 팽창','정치 리스크','탄핵','정치 불확실'],
+      ['재정 적자','정치 불안','재정 팽창','정치 리스크','탄핵','정치 불확실'],
       '정치 안정(호재)', '정치 리스크(악재)', '정치 혼조', '정치 관망');
 
     const note = document.getElementById('news-live-note');
-    if (note) {
-      const small = note.querySelector('div:last-child');
-      if (small) small.textContent = '✓ 최신 뉴스 기반 자동 분류 (API 키 불필요)';
-      else note.textContent = '✓ 최신 뉴스 기반 자동 분류 (API 키 불필요)';
-    }
+    if (note) note.textContent = '✓ 최신 뉴스 기반 자동 분류 (API 키 불필요)';
 
     if (typeof recalcScorecard === 'function') recalcScorecard();
     if (typeof applyAnalysis === 'function' && typeof ruleBasedAnalysis === 'function' && typeof _liveData !== 'undefined') {
@@ -337,13 +343,28 @@
     }
   }
 
-  // 시장데이터.json 캐시 로드
+  // ── 시장데이터.json 캐시 로드 ──
+  const FALLBACK_DATA = {
+    current: 168454.0, ma_signal: 'neutral', ma_state: '혼조',
+    rsi: 41.7, mom4: -4.4, from_hi: -14.6,
+    ewz: 34.11, usdbrl: 5.14, vix: 17.3, dxy: 100.64, crude: 78.4, vale: 15.53,
+    score_pct: 50, score_label: '관망', score_emoji: '📌',
+    score_desc: 'IBOVESPA 기술적 혼조', updated_at: '(캐시)'
+  };
+
   async function loadCachedMarketData() {
+    let d = null;
     try {
-      const res = await fetch('시장데이터.json?t=' + Date.now());
-      if (!res.ok) return;
-      const d = await res.json();
-      if (!d || !d.current) return;
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 3000);
+      const res = await fetch('시장데이터.json?t=' + Date.now(), { signal: ctrl.signal });
+      clearTimeout(t);
+      if (res.ok) {
+        const parsed = await res.json();
+        if (parsed && parsed.current) d = parsed;
+      }
+    } catch(e) {}
+    if (!d) d = FALLBACK_DATA;
 
       const scEmoji = document.getElementById('sc-emoji');
       const scPct   = document.getElementById('sc-pct');
@@ -367,18 +388,26 @@
       setB('badge-pos', fhi <= -20 ? 'badge-g' : fhi >= -3 ? 'badge-r' : 'badge-y',
         fhi <= -20 ? `고점대비 ${fhi}% 저점권` : fhi >= -3 ? `고점 근접 ${fhi}%` : `고점대비 ${fhi}%`);
       const vix = d.vix || 0;
-      if (vix) setB('badge-vix', vix < 18 ? 'badge-g' : vix > 28 ? 'badge-r' : 'badge-y', `VIX ${vix}`);
+      if (vix) setB('badge-vix', vix < 18 ? 'badge-g' : vix > 28 ? 'badge-r' : 'badge-y',
+        `VIX ${vix} — ${vix < 18 ? '안정' : vix > 28 ? '공포' : '불안'}`);
       const usdbrl = d.usdbrl || 0;
-      if (usdbrl) setB('badge-usdbrl', usdbrl < 5.5 ? 'badge-g' : usdbrl > 6.0 ? 'badge-r' : 'badge-y', `R$${usdbrl.toFixed(2)}`);
+      if (usdbrl) setB('badge-usdbrl', usdbrl < 5.5 ? 'badge-g' : usdbrl > 6.0 ? 'badge-r' : 'badge-y',
+        `R$${usdbrl.toFixed(2)}`);
       const crude = d.crude || 0;
-      if (crude) setB('badge-crude', crude > 80 ? 'badge-g' : crude < 65 ? 'badge-r' : 'badge-y', `브렌트유 $${crude}`);
+      if (crude) setB('badge-crude', crude > 80 ? 'badge-g' : crude < 65 ? 'badge-r' : 'badge-y',
+        `브렌트유 $${crude}`);
       try { if (typeof recalcScorecard === 'function') recalcScorecard(); } catch(e) {}
-    } catch(e) {
-      console.log('[시장데이터] 캐시 없음');
-    }
+      console.log('[시장데이터] 캐시 로드 완료:', d.updated_at);
   }
 
-  // AI 질문 override
+  // fetchLatestNews override (액션가이드에서 사용)
+  window.fetchLatestNews = async function () {
+    const items = window.__majorNewsItems || [];
+    if (!items.length) return {};
+    return { '주요 뉴스': items.slice(0, 6).map((n) => n.ko || n.title) };
+  };
+
+  // ── AI 질문 override ──
   window.askAI = async function () {
     const qEl = document.getElementById('ai-q');
     const box = document.getElementById('ai-resp');
@@ -410,7 +439,7 @@
     } catch (e) { box.textContent = '네트워크 오류: ' + e.message; }
   };
 
-  // 메인 실행
+  // ── 전체 실행 ──
   async function runRealtime() {
     await loadCachedMarketData();
 
@@ -437,9 +466,12 @@
     try { await renderMajorNews(); } catch (e) {}
     try { updateNewsBadgesFromKorean(); } catch (e) {}
     try { if (typeof recalcScorecard === 'function') recalcScorecard(); } catch (e) {}
+    try { if (typeof buildChecklist === 'function') buildChecklist(); } catch (e) {}
 
     try {
       await new Promise(r => setTimeout(r, 1000));
+      if (typeof recalcScorecard === 'function') recalcScorecard();
+      if (typeof buildChecklist === 'function') buildChecklist();
       if (typeof applyAnalysis === 'function' && typeof ruleBasedAnalysis === 'function' && typeof _liveData !== 'undefined') {
         if (!localStorage.getItem('anthropic_api_key')) applyAnalysis(ruleBasedAnalysis(_liveData));
       }
@@ -451,5 +483,6 @@
   } else {
     setTimeout(runRealtime, 300);
   }
+  // 5분마다 재갱신
   setInterval(runRealtime, 5 * 60 * 1000);
 })();
