@@ -55,7 +55,7 @@ def fetch_market_data():
         close_col = close_col.iloc[:, 0]
     closes = [float(v) for v in close_col.dropna().values.tolist()]
 
-    extras_tickers = ['EWZ', 'BRL=X', '^VIX', 'DX-Y.NYB', 'BZ=F', 'VALE']
+    extras_tickers = ['EWZ', 'BRL=X', '^VIX', 'DX-Y.NYB', 'BZ=F', 'VALE', 'EEM', '^GSPC']
     extras = yf.download(extras_tickers, period='5d', interval='1d', auto_adjust=True, progress=False)
 
     def last_close(ticker):
@@ -81,9 +81,13 @@ def fetch_market_data():
     dxy    = last_close('DX-Y.NYB')
     crude  = last_close('BZ=F')
     vale   = last_close('VALE')
+    eem    = last_close('EEM')
+    sp500  = last_close('^GSPC')
 
     ewz_pct  = pct_change('EWZ')
     vale_pct = pct_change('VALE')
+    eem_pct  = pct_change('EEM')
+    sp500_pct= pct_change('^GSPC')
 
     n = len(closes)
     rsi = None
@@ -123,6 +127,7 @@ def fetch_market_data():
         'ewz': ewz, 'ewz_pct': ewz_pct,
         'usdbrl': usdbrl, 'vix': vix, 'dxy': dxy,
         'crude': crude, 'vale': vale, 'vale_pct': vale_pct,
+        'eem': eem, 'eem_pct': eem_pct, 'sp500': sp500, 'sp500_pct': sp500_pct,
     }
 
 
@@ -281,6 +286,12 @@ def save_market_data(d, sc):
         'dxy':        round(d['dxy'], 2) if d.get('dxy') else None,
         'crude':      round(d['crude'], 1) if d.get('crude') else None,
         'vale':       round(d['vale'], 2) if d.get('vale') else None,
+        'ewz_pct':    round(d['ewz_pct'], 2) if d.get('ewz_pct') is not None else 0,
+        'vale_pct':   round(d['vale_pct'], 2) if d.get('vale_pct') is not None else 0,
+        'eem':        round(d['eem'], 2) if d.get('eem') else None,
+        'eem_pct':    round(d['eem_pct'], 2) if d.get('eem_pct') is not None else 0,
+        'sp500':      round(d['sp500'], 2) if d.get('sp500') else None,
+        'sp500_pct':  round(d['sp500_pct'], 2) if d.get('sp500_pct') is not None else 0,
         'score_pct':  sc['pct'],
         'score_label':sc['label'],
         'score_emoji':sc['emoji'],

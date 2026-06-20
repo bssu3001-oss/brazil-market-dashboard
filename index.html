@@ -430,7 +430,26 @@ async function fetchQuote(ticker) {
 async function fetchAllLive() {
   const tickers = ['^BVSP','EWZ','BRL=X','BRLKRW=X','DX-Y.NYB','EEM','^VIX','BZ=F','VALE','^GSPC'];
   const results = await Promise.all(tickers.map(t=>fetchQuote(t).catch(()=>null)));
-  const [ibov, ewz, usdbrl, brlkrw, dxy, eem, vix, crude, vale, sp500] = results;
+  let [ibov, ewz, usdbrl, brlkrw, dxy, eem, vix, crude, vale, sp500] = results;
+
+  // 프록시 실패 시 시장데이터.json(서버 수집·안정)으로 보강 → N/A 방지
+  try {
+    if (!ibov||!ewz||!usdbrl||!dxy||!eem||!vix||!crude||!vale||!sp500) {
+      const jr = await fetch('시장데이터.json?_='+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
+      if (jr) {
+        const mk=(p,pc)=>(p!=null&&p!==0)?{price:p,pct:pc||0,prev:p,open:p,high:p,low:p,high52:p,low52:p,_stale:true}:null;
+        if(!ibov  && jr.current!=null) ibov =mk(jr.current, jr.pct);
+        if(!ewz   && jr.ewz!=null)    ewz  =mk(jr.ewz, jr.ewz_pct);
+        if(!usdbrl&& jr.usdbrl!=null) usdbrl=mk(jr.usdbrl, 0);
+        if(!dxy   && jr.dxy!=null)    dxy  =mk(jr.dxy, 0);
+        if(!eem   && jr.eem!=null)    eem  =mk(jr.eem, jr.eem_pct);
+        if(!vix   && jr.vix!=null)    vix  =mk(jr.vix, 0);
+        if(!crude && jr.crude!=null)  crude=mk(jr.crude, 0);
+        if(!vale  && jr.vale!=null)   vale =mk(jr.vale, jr.vale_pct);
+        if(!sp500 && jr.sp500!=null)  sp500=mk(jr.sp500, jr.sp500_pct);
+      }
+    }
+  } catch(e) {}
 
   // IBOVESPA
   if (ibov) {
@@ -478,14 +497,8 @@ async function fetchAllLive() {
     setBadge('badge-dxy',`DXY ${fmt2(dxy.price)} ${arrow(dxy.pct)}${Math.abs(dxy.pct).toFixed(2)} — ${dxy.price>106?'달러 강세(악재)':dxy.price>100?'달러 주의':'안정'}`,c);
   }
   if (eem) {
-    const _ce=JSON.parse(localStorage.getItem('shared_eem')||'null');
-    if (_ce&&(Date.now()-_ce.ts)<600000){eem={price:_ce.price,pct:_ce.pct};}
-    else{localStorage.setItem('shared_eem',JSON.stringify({price:eem.price,pct:eem.pct,ts:Date.now()}));}
     const c=eem.pct>=0.5?'badge-g':eem.pct<=-0.5?'badge-r':'badge-b';
     setBadge('badge-eem',`$${fmt2(eem.price)} ${arrow(eem.pct)}${Math.abs(eem.pct).toFixed(2)}% — ${eem.pct>=0.5?'신흥국 상승(호재)':eem.pct<=-0.5?'신흥국 하락':'보합'}`,c);
-  } else {
-    const _ce=JSON.parse(localStorage.getItem('shared_eem')||'null');
-    if (_ce&&(Date.now()-_ce.ts)<600000){const c=_ce.pct>=0.5?'badge-g':_ce.pct<=-0.5?'badge-r':'badge-b';setBadge('badge-eem',`$${fmt2(_ce.price)} ${_ce.pct>=0?'▲':'▼'}${Math.abs(_ce.pct).toFixed(2)}% — ${_ce.pct>=0.5?'신흥국 상승(호재)':_ce.pct<=-0.5?'신흥국 하락':'보합'}`,c);}
   }
   if (vix) {
     const c=vix.price>28?'badge-r':vix.price>18?'badge-y':'badge-g';
