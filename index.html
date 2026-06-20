@@ -1048,9 +1048,11 @@ ${newsLines || '뉴스 없음'}`;
         badge.style.background = isHigh ? '#fde8e8' : isLow ? '#e8fde8' : '#fdf6e8';
       }
     }
+    const _badTxt = /데이터|부재|없음|미정|불명|모름|N\/A|VIX|^-+$/;
     ['badge_bcb','badge_ipca','badge_gdp','badge_fed','badge_trade','badge_political'].forEach(k => {
       const domId = k.replace('_', '-');
-      if (ag[k]?.text && ag[k]?.cls) setBadge(domId, ag[k].text, ag[k].cls);
+      const t = (ag[k]?.text || '').trim();
+      if (t && ag[k]?.cls && !_badTxt.test(t)) setBadge(domId, t, ag[k].cls);
     });
     recalcScorecard();
   } catch(e) { console.warn('AI error:', e); if(onelinerEl) onelinerEl.textContent=_ruleOneliner; }
