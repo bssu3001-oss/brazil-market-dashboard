@@ -1,10 +1,6 @@
 name: 브라질 증시 카카오 알림
 
 on:
-  schedule:
-    - cron: '0 0 * * 1-5'    # 평일 09:00 KST
-    - cron: '0 5 * * 1-5'    # 평일 14:00 KST
-    - cron: '30 10 * * 1-5'  # 평일 19:30 KST
   workflow_dispatch:
 
 jobs:
