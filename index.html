@@ -478,8 +478,12 @@ async function fetchAllLive() {
     setBadge('badge-dxy',`DXY ${fmt2(dxy.price)} ${arrow(dxy.pct)}${Math.abs(dxy.pct).toFixed(2)} — ${dxy.price>106?'달러 강세(악재)':dxy.price>100?'달러 주의':'안정'}`,c);
   }
   if (eem) {
+    localStorage.setItem('shared_eem', JSON.stringify({price:eem.price,pct:eem.pct,ts:Date.now()}));
     const c=eem.pct>=0.5?'badge-g':eem.pct<=-0.5?'badge-r':'badge-b';
     setBadge('badge-eem',`$${fmt2(eem.price)} ${arrow(eem.pct)}${Math.abs(eem.pct).toFixed(2)}% — ${eem.pct>=0.5?'신흥국 상승(호재)':eem.pct<=-0.5?'신흥국 하락':'보합'}`,c);
+  } else {
+    const _ce=JSON.parse(localStorage.getItem('shared_eem')||'null');
+    if (_ce&&(Date.now()-_ce.ts)<600000){const c=_ce.pct>=0.5?'badge-g':_ce.pct<=-0.5?'badge-r':'badge-b';setBadge('badge-eem',`$${fmt2(_ce.price)} ${_ce.pct>=0?'▲':'▼'}${Math.abs(_ce.pct).toFixed(2)}% — ${_ce.pct>=0.5?'신흥국 상승(호재)':_ce.pct<=-0.5?'신흥국 하락':'보합'}`,c);}
   }
   if (vix) {
     const c=vix.price>28?'badge-r':vix.price>18?'badge-y':'badge-g';
@@ -712,10 +716,12 @@ function recalcScorecard() {
   }
   const techIds  = ['badge-rsi','badge-ma','badge-mom','badge-vol','badge-pos'];
   const macroIds = ['badge-ewz','badge-usdbrl','badge-dxy','badge-eem','badge-vix','badge-crude','badge-vale','badge-sp500'];
-  const tS = techIds.reduce((s,id)=>s+bv(id)*1.5,0);
-  const mS = macroIds.reduce((s,id)=>s+bv(id)*1.0,0);
+  const techW  = {'badge-rsi':2.0,'badge-ma':2.0,'badge-mom':1.5,'badge-vol':1.0,'badge-pos':1.5};
+  const macroW = {'badge-ewz':2.0,'badge-usdbrl':1.5,'badge-dxy':0.5,'badge-eem':0.5,'badge-vix':0.5,'badge-crude':1.0,'badge-vale':1.5,'badge-sp500':1.0};
+  const tS = techIds.reduce((s,id)=>s+bv(id)*(techW[id]||1.5),0);
+  const mS = macroIds.reduce((s,id)=>s+bv(id)*(macroW[id]||1.0),0);
   const total = tS+mS;
-  const max = techIds.length*1.5+macroIds.length*1.0;
+  const max = techIds.reduce((s,id)=>s+(techW[id]||1.5),0)+macroIds.reduce((s,id)=>s+(macroW[id]||1.0),0);
   const pct = Math.max(0,Math.min(100,Math.round((total+max)/(2*max)*100)));
   let label,color,emoji;
   if (total>=max*0.5)       {label='강매수';   color='#2d6a0a';emoji='🔥';}
@@ -723,6 +729,12 @@ function recalcScorecard() {
   else if(total>=-max*0.15) {label='관망';     color='#BA7517';emoji='📌';}
   else if(total>=-max*0.5)  {label='조심';     color='#c0392b';emoji='⚠️';}
   else                       {label='진입 자제';color='#9b2020';emoji='🔴';}
+  // RSI 하드캡: 75 이상이면 매수 신호 차단
+  const _rsiText = document.getElementById('badge-rsi')?.textContent || '';
+  const _rsiVal = parseFloat((_rsiText.match(/RSI\s*([\d.]+)/) || [])[1] || 50);
+  if (_rsiVal >= 75 && (label === '강매수' || label === '매수 검토')) {
+    label = '관망'; color = '#BA7517'; emoji = '📌';
+  }
   document.getElementById('sc-emoji').textContent=emoji+' '+label; document.getElementById('sc-emoji').style.color=color;
   document.getElementById('sc-pct').textContent=pct+'점'; document.getElementById('sc-pct').style.color=color;
   document.getElementById('sc-bar').style.width=pct+'%'; document.getElementById('sc-bar').style.background=color;
@@ -943,21 +955,26 @@ async function updateAI(liveData) {
   const n = liveData?.ibov;
   const _aiNews = (window.__majorNewsItems || []).map(n => n.ko || n.title).filter(Boolean);
   const newsLines = _aiNews.slice(0, 8).map(t => '- ' + t).join('\n');
-  const maText  = document.getElementById('badge-ma')?.textContent  || '';
-  const momText = document.getElementById('badge-mom')?.textContent || '';
-  const rsiText = document.getElementById('badge-rsi')?.textContent || '';
+  const maText    = document.getElementById('badge-ma')?.textContent  || '';
+  const momText   = document.getElementById('badge-mom')?.textContent || '';
+  const rsiText   = document.getElementById('badge-rsi')?.textContent || '';
+  const ewzText   = document.getElementById('badge-ewz')?.textContent || '';
+  const brlText   = document.getElementById('badge-usdbrl')?.textContent || '';
+  const eemText   = document.getElementById('badge-eem')?.textContent || '';
 
   const ctx = `당신은 브라질 주식시장 전문 애널리스트입니다. 오늘 날짜 기준으로 판단하세요.
 
-[실시간 지표]
+[실시간 지표 및 배지 상태]
 IBOVESPA: ${n ? fmt(n.price) + ` (${n.pct >= 0 ? '▲' : '▼'}${Math.abs(n.pct).toFixed(2)}%)` : 'N/A'}
 이평선: ${maText} | 모멘텀: ${momText} | RSI: ${rsiText}
-USD/BRL: ${liveData?.usdbrl ? 'R$' + liveData.usdbrl.price.toFixed(2) : 'N/A'}
+EWZ(브라질ETF): ${ewzText}
+USD/BRL(헤알환율): ${brlText}
+EEM(신흥국ETF): ${eemText}
 VIX: ${liveData?.vix ? liveData.vix.price.toFixed(1) : 'N/A'}
 브렌트유: ${liveData?.crude ? '$' + liveData.crude.price.toFixed(1) : 'N/A'}
 Vale: ${liveData?.vale ? '$' + liveData.vale.price.toFixed(2) + (liveData.vale.pct >= 0 ? '+' : '') + liveData.vale.pct.toFixed(2) + '%' : 'N/A'}
-EWZ: ${liveData?.ewz ? '$' + liveData.ewz.price.toFixed(2) + (liveData.ewz.pct >= 0 ? '+' : '') + liveData.ewz.pct.toFixed(2) + '%' : 'N/A'}
-EEM: ${liveData?.eem ? '$' + liveData.eem.price.toFixed(2) + (liveData.eem.pct >= 0 ? '+' : '') + liveData.eem.pct.toFixed(2) + '%' : 'N/A'}
+
+[주의] sc_appeal·sc_risk·sc_entry는 반드시 위 배지 상태와 일치해야 합니다. 배지에 "하락"·"약세"가 포함된 지표를 강점으로 언급하지 마세요.
 
 [최신 뉴스]
 ${newsLines || '뉴스 없음'}`;
