@@ -256,8 +256,8 @@
     }).join('');
   }
 
-  // ── 한국어 뉴스 키워드로 뉴스 배지 자동 분류 (API 키 불필요) ──
-  function updateNewsBadgesFromKorean() {
+  // ── 한국어 뉴스 키워드로 뉴스 배지 자동 분류 (키 없으면 키워드 / 있으면 AI 위임) ──
+  async function updateNewsBadgesFromKorean() {
     const items = (window.__majorNewsItems || []).length
       ? (window.__majorNewsItems || [])
       : (window.__newsForAnalysis || []).map(t => ({ ko: t, title: t }));
@@ -330,12 +330,20 @@
       ['재정 적자','정치 불안','재정 팽창','정치 리스크','탄핵','정치 불확실'],
       '정치 안정(호재)', '정치 리스크(악재)', '정치 혼조', '정치 관망');
 
+    const hasKey = !!localStorage.getItem('anthropic_api_key');
     const note = document.getElementById('news-live-note');
-    if (note) note.textContent = '✓ 최신 뉴스 기반 자동 분류 (API 키 불필요)';
+    if (note) note.textContent = hasKey ? '✓ AI 뉴스 분석 중...' : '✓ 최신 뉴스 기반 자동 분류 (API 키 불필요)';
 
     if (typeof recalcScorecard === 'function') recalcScorecard();
-    if (typeof applyAnalysis === 'function' && typeof ruleBasedAnalysis === 'function' && typeof _liveData !== 'undefined') {
-      if (!localStorage.getItem('anthropic_api_key')) applyAnalysis(ruleBasedAnalysis(_liveData));
+
+    // API 키 있으면 AI가 뉴스 신호를 정밀 분석 (미국 대시보드와 동일 방식) → 위 키워드 배지를 덮어씀
+    if (hasKey && typeof updateAI === 'function' && typeof _liveData !== 'undefined') {
+      try {
+        await updateAI(_liveData);
+        if (note) note.textContent = '✓ AI 뉴스 분석 완료';
+      } catch(e) {}
+    } else if (typeof applyAnalysis === 'function' && typeof ruleBasedAnalysis === 'function' && typeof _liveData !== 'undefined') {
+      applyAnalysis(ruleBasedAnalysis(_liveData));
     }
   }
 
