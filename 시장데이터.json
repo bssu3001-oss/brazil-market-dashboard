@@ -9,7 +9,7 @@
   "usdbrl": 5.2,
   "vix": 16.3,
   "dxy": 101.5,
-  "crude": 97.6,
+  "crude": 97.9,
   "vale": 13.3,
   "ewz_pct": 0.72,
   "vale_pct": -2.13,
@@ -20,6 +20,6 @@
   "score_pct": 75,
   "score_label": "강매수",
   "score_emoji": "🔥",
-  "score_desc": "VIX 16.3 안정 / USD/BRL 5.20 안정 / 브렌트유 $97.6 고유가",
-  "updated_at": "2026-10-01 09:04 KST"
+  "score_desc": "VIX 16.3 안정 / USD/BRL 5.20 안정 / 브렌트유 $97.9 고유가",
+  "updated_at": "2026-10-01 09:17 KST"
 }
