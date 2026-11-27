@@ -1,15 +1,15 @@
 {
-  "current": 172504.0,
+  "current": 176800.0,
   "ma_signal": "neutral",
   "ma_state": "혼조",
-  "rsi": 50.7,
-  "mom4": 2.73,
-  "from_hi": -17.5,
+  "rsi": 52.7,
+  "mom4": 5.29,
+  "from_hi": -15.4,
   "ewz": 30.16,
-  "usdbrl": 5.74,
+  "usdbrl": 5.65,
   "vix": 26.8,
-  "dxy": 103.78,
-  "crude": 91.5,
+  "dxy": 103.71,
+  "crude": 92.3,
   "vale": 9.81,
   "ewz_pct": 2.94,
   "vale_pct": 4.7,
@@ -20,6 +20,6 @@
   "score_pct": 69,
   "score_label": "매수 검토",
   "score_emoji": "🟢",
-  "score_desc": "브렌트유 $91.5 고유가",
-  "updated_at": "2026-11-27 03:17 KST"
+  "score_desc": "브렌트유 $92.3 고유가",
+  "updated_at": "2026-11-27 13:02 KST"
 }
